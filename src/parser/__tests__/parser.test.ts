@@ -467,6 +467,123 @@ describe('DocumentParser', () => {
   })
 
   // --------------------------------------------
+  // Source-code formats (.ts / .js / .cs)
+  // --------------------------------------------
+  describe('parseCode (.ts / .js / .cs)', () => {
+    it('should parse a TypeScript file and return content + title from comment', async () => {
+      const filePath = join(testDir, 'auth.service.ts')
+      const content = '// Authentication service\n\nexport class AuthService {}\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('Authentication service')
+    })
+
+    it('should parse a JavaScript file and return content + class title', async () => {
+      const filePath = join(testDir, 'helpers.js')
+      const content = 'export class StringHelper {\n  static trim(s) { return s.trim(); }\n}\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('StringHelper')
+    })
+
+    it('should parse a C# file and return content + class title', async () => {
+      const filePath = join(testDir, 'SalesOrder.cs')
+      const content =
+        'using System;\n\npublic class SalesOrder\n{\n  public int Id { get; set; }\n}\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('SalesOrder')
+    })
+
+    it('should fall back to filename when no declaration is recognised', async () => {
+      const filePath = join(testDir, 'index.ts')
+      const content = "export * from './auth.service.js';\nexport * from './helpers.js';\n"
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('index')
+    })
+  })
+
+  // --------------------------------------------
+  // YAML format (.yaml / .yml)
+  // --------------------------------------------
+  describe('parseYaml (.yaml / .yml)', () => {
+    it('should parse a .yaml file and extract title from name field', async () => {
+      const filePath = join(testDir, 'config.yaml')
+      const content = 'name: my-service\nversion: 1.2.3\nenvironment: production\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('my-service')
+    })
+
+    it('should parse a .yml file and extract title from title field', async () => {
+      const filePath = join(testDir, 'pipeline.yml')
+      const content = 'title: Deploy to Production\non:\n  push:\n    branches: [main]\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('Deploy to Production')
+    })
+
+    it('should fall back to filename when no name or title field is present', async () => {
+      const filePath = join(testDir, 'k8s-deployment.yaml')
+      const content = 'kind: Deployment\napiVersion: apps/v1\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('k8s deployment')
+    })
+  })
+
+  // --------------------------------------------
+  // Dynamics AX export format (.xpo)
+  // --------------------------------------------
+  describe('parseXpo (.xpo)', () => {
+    it('should parse an XPO file and extract CLASS name as title', async () => {
+      const filePath = join(testDir, 'SalesFormLetter.xpo')
+      const content =
+        'Exportfile for AOT version 1.0 or later\nFormatversion:1\n***Element: CLS\n\n  CLASS #SalesFormLetter\n  ENDCLASS\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('SalesFormLetter')
+    })
+
+    it('should parse an XPO file and extract TABLE name as title', async () => {
+      const filePath = join(testDir, 'CustTable.xpo')
+      const content = 'Exportfile for AOT version 1.0 or later\n\n  TABLE #CustTable\n  ENDTABLE\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('CustTable')
+    })
+
+    it('should fall back to filename when no AOT object declaration is present', async () => {
+      const filePath = join(testDir, 'my-export.xpo')
+      const content = 'Exportfile for AOT version 1.0 or later\nFormatversion:1\n'
+      await writeFile(filePath, content, 'utf-8')
+
+      const result = await parser.parseFile(filePath)
+      expect(result.content).toBe(content)
+      expect(result.title).toBe('my export')
+    })
+  })
+
+  // --------------------------------------------
   // parsePdf
   // --------------------------------------------
   describe('parsePdf', () => {
