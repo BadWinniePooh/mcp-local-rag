@@ -9,10 +9,13 @@ import { SemanticChunker } from '../chunker/index.js'
 import { withTrailingSeparator } from '../utils/base-dirs.js'
 import { type EmbedderInterface, filterPageBoundarySentences, type PageData } from './pdf-filter.js'
 import {
+  extractCodeTitle,
   extractDocxTitle,
   extractMarkdownTitle,
   extractPdfTitle,
   extractTxtTitle,
+  extractXpoTitle,
+  extractYamlTitle,
 } from './title-extractor.js'
 
 // ============================================
@@ -23,8 +26,29 @@ import {
  * File extensions supported by the parser module (parseFile + parsePdf).
  * Exported so other modules (e.g. list_files) stay in sync automatically
  * when new formats are added here.
+ *
+ * Binary formats: .pdf (MuPDF), .docx (Mammoth)
+ * Plain-text formats: .txt, .md
+ * Source-code formats: .ts (TypeScript), .js (JavaScript), .cs (C#)
+ * Data/config formats: .yaml, .yml (YAML), .xpo (Dynamics AX AOT export)
  */
-export const SUPPORTED_EXTENSIONS = new Set(['.pdf', '.docx', '.txt', '.md'])
+export const SUPPORTED_EXTENSIONS = new Set([
+  // Binary document formats
+  '.pdf',
+  '.docx',
+  // Plain-text document formats
+  '.txt',
+  '.md',
+  // Source-code formats
+  '.ts',
+  '.js',
+  '.cs',
+  // Data / config formats
+  '.yaml',
+  '.yml',
+  // Dynamics AX AOT export
+  '.xpo',
+])
 
 // ============================================
 // Type Definitions
@@ -101,12 +125,19 @@ export class FileOperationError extends Error {
 // ============================================
 
 /**
- * Document parser class (PDF/DOCX/TXT/MD support)
+ * Document parser class
+ *
+ * Supported formats:
+ *   Binary  — PDF (MuPDF), DOCX (Mammoth)
+ *   Text    — TXT, Markdown
+ *   Code    — TypeScript (.ts), JavaScript (.js), C# (.cs)
+ *   Config  — YAML (.yaml / .yml)
+ *   AX      — Dynamics AX AOT export (.xpo)
  *
  * Responsibilities:
  * - File path validation (path traversal prevention)
  * - File size validation (100MB limit)
- * - Parse 4 formats (PDF/DOCX/TXT/MD)
+ * - Format detection by extension and per-format content parsing
  */
 export class DocumentParser {
   private readonly config: ParserConfig
@@ -275,6 +306,18 @@ export class DocumentParser {
         return await this.parseTxt(filePath)
       case '.md':
         return await this.parseMd(filePath)
+      // Source-code formats — read as UTF-8 text with code-aware title extraction
+      case '.ts':
+      case '.js':
+      case '.cs':
+        return await this.parseCode(filePath)
+      // YAML / YML — read as UTF-8 text with YAML-aware title extraction
+      case '.yaml':
+      case '.yml':
+        return await this.parseYaml(filePath)
+      // Dynamics AX AOT export — read as UTF-8 text with XPO-aware title extraction
+      case '.xpo':
+        return await this.parseXpo(filePath)
       default:
         throw new ValidationError(`Unsupported file format: ${ext}`)
     }
@@ -519,6 +562,81 @@ export class DocumentParser {
       return { content: text, title: titleResult.title }
     } catch (error) {
       throw new FileOperationError(`Failed to parse MD: ${filePath}`, error as Error)
+    }
+  }
+
+  /**
+   * Source-code file parsing (.ts / .js / .cs)
+   *
+   * Reads the file as UTF-8 text and applies code-aware title extraction:
+   * leading single-line comment → first class/function/namespace declaration → filename.
+   *
+   * @param filePath - Source-code file path
+   * @returns ParseResult with content and extracted title
+   * @throws FileOperationError - File read failed
+   */
+  private async parseCode(filePath: string): Promise<ParseResult> {
+    try {
+      const text = await readFile(filePath, 'utf-8')
+      const fileName = basename(filePath)
+      const titleResult = extractCodeTitle(text, fileName)
+      const ext = extname(filePath).toUpperCase().slice(1)
+      console.error(`Parsed ${ext}: ${filePath} (${text.length} characters)`)
+      return { content: text, title: titleResult.title }
+    } catch (error) {
+      throw new FileOperationError(`Failed to parse code file: ${filePath}`, error as Error)
+    }
+  }
+
+  /**
+   * YAML file parsing (.yaml / .yml)
+   *
+   * Reads the file as UTF-8 text. Title is extracted from root-level `name:` or
+   * `title:` fields; falls back to the filename when neither is present.
+   *
+   * The raw YAML text (not a parsed object) is stored so the semantic chunker
+   * can split it naturally by content similarity rather than by key structure.
+   *
+   * @param filePath - YAML file path
+   * @returns ParseResult with content and extracted title
+   * @throws FileOperationError - File read failed
+   */
+  private async parseYaml(filePath: string): Promise<ParseResult> {
+    try {
+      const text = await readFile(filePath, 'utf-8')
+      const fileName = basename(filePath)
+      const titleResult = extractYamlTitle(text, fileName)
+      console.error(`Parsed YAML: ${filePath} (${text.length} characters)`)
+      return { content: text, title: titleResult.title }
+    } catch (error) {
+      throw new FileOperationError(`Failed to parse YAML: ${filePath}`, error as Error)
+    }
+  }
+
+  /**
+   * Dynamics AX AOT export file parsing (.xpo)
+   *
+   * XPO files are line-oriented text exports from the Dynamics AX Application
+   * Object Tree (AOT). Each file typically contains one or more named AOT
+   * objects (classes, tables, forms, reports, queries, …).
+   *
+   * The file is read as UTF-8 text. The title is derived from the first
+   * recognisable AOT object declaration (`CLASS #Name`, `TABLE #Name`, etc.);
+   * the filename is used as a fallback.
+   *
+   * @param filePath - XPO file path
+   * @returns ParseResult with content and extracted title
+   * @throws FileOperationError - File read failed
+   */
+  private async parseXpo(filePath: string): Promise<ParseResult> {
+    try {
+      const text = await readFile(filePath, 'utf-8')
+      const fileName = basename(filePath)
+      const titleResult = extractXpoTitle(text, fileName)
+      console.error(`Parsed XPO: ${filePath} (${text.length} characters)`)
+      return { content: text, title: titleResult.title }
+    } catch (error) {
+      throw new FileOperationError(`Failed to parse XPO: ${filePath}`, error as Error)
     }
   }
 }

@@ -3,11 +3,14 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  extractCodeTitle,
   extractDocxTitle,
   extractHtmlTitle,
   extractMarkdownTitle,
   extractPdfTitle,
   extractTxtTitle,
+  extractXpoTitle,
+  extractYamlTitle,
   fileNameToTitle,
 } from '../title-extractor.js'
 
@@ -290,6 +293,186 @@ describe('Title Extractor', () => {
       const result = extractDocxTitle(html, 'document.docx')
 
       expect(result.title).toBe('First Title')
+      expect(result.source).toBe('content')
+    })
+  })
+
+  // --------------------------------------------
+  // extractCodeTitle
+  // --------------------------------------------
+  describe('extractCodeTitle', () => {
+    it('should extract title from leading single-line comment', () => {
+      const ts = '// Authentication service\n\nimport { Injectable } from "@angular/core";\n'
+      const result = extractCodeTitle(ts, 'auth.service.ts')
+
+      expect(result.title).toBe('Authentication service')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract class name when no leading comment', () => {
+      const cs = 'using System;\n\npublic class SalesFormLetter\n{\n}\n'
+      const result = extractCodeTitle(cs, 'SalesFormLetter.cs')
+
+      expect(result.title).toBe('SalesFormLetter')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract TypeScript exported class name', () => {
+      const ts =
+        'import { Something } from "./mod.js";\n\nexport class MyService {\n  run() {}\n}\n'
+      const result = extractCodeTitle(ts, 'my-service.ts')
+
+      expect(result.title).toBe('MyService')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract function name when no class is present', () => {
+      const js =
+        'export function computeTotal(items) {\n  return items.reduce((a, b) => a + b, 0);\n}\n'
+      const result = extractCodeTitle(js, 'compute-total.js')
+
+      expect(result.title).toBe('computeTotal')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract interface name from TypeScript file', () => {
+      const ts = 'export interface UserProfile {\n  id: string;\n  name: string;\n}\n'
+      const result = extractCodeTitle(ts, 'user-profile.ts')
+
+      expect(result.title).toBe('UserProfile')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract C# namespace name', () => {
+      const cs = 'namespace Contoso.Finance.Reporting\n{\n  class Program {}\n}\n'
+      const result = extractCodeTitle(cs, 'reporting.cs')
+
+      expect(result.title).toBe('Contoso.Finance.Reporting')
+      expect(result.source).toBe('content')
+    })
+
+    it('should fall back to file name when file has no recognisable declarations', () => {
+      const js = 'const x = 1;\nconst y = 2;\n'
+      const result = extractCodeTitle(js, 'constants.js')
+
+      expect(result.title).toBe('constants')
+      expect(result.source).toBe('filename')
+    })
+
+    it('should ignore shebang line and use comment on next line', () => {
+      const js = '#!/usr/bin/env node\n// CLI entry point\n\nconsole.log("hi");\n'
+      const result = extractCodeTitle(js, 'cli.js')
+
+      expect(result.title).toBe('CLI entry point')
+      expect(result.source).toBe('content')
+    })
+  })
+
+  // --------------------------------------------
+  // extractYamlTitle
+  // --------------------------------------------
+  describe('extractYamlTitle', () => {
+    it('should extract root-level name field', () => {
+      const yaml = 'name: my-app\nversion: 1.0.0\ndescription: A sample app\n'
+      const result = extractYamlTitle(yaml, 'package.yaml')
+
+      expect(result.title).toBe('my-app')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract root-level title field', () => {
+      const yaml = 'title: CI Pipeline\non:\n  push:\n    branches: [main]\n'
+      const result = extractYamlTitle(yaml, 'ci.yml')
+
+      expect(result.title).toBe('CI Pipeline')
+      expect(result.source).toBe('content')
+    })
+
+    it('should prefer name over title when both present', () => {
+      // The regex matches the first hit; `name` appears before `title` here
+      const yaml = 'name: primary-name\ntitle: secondary-title\n'
+      const result = extractYamlTitle(yaml, 'config.yaml')
+
+      expect(result.title).toBe('primary-name')
+      expect(result.source).toBe('content')
+    })
+
+    it('should fall back to file name when no name or title field is present', () => {
+      const yaml = 'kind: Deployment\napiVersion: apps/v1\n'
+      const result = extractYamlTitle(yaml, 'deployment.yaml')
+
+      expect(result.title).toBe('deployment')
+      expect(result.source).toBe('filename')
+    })
+
+    it('should not pick up an indented name field (only root-level)', () => {
+      const yaml = 'spec:\n  name: nested-name\nkind: Service\n'
+      const result = extractYamlTitle(yaml, 'service.yml')
+
+      // Indented `name` must not match; fall back to filename
+      expect(result.title).toBe('service')
+      expect(result.source).toBe('filename')
+    })
+
+    it('should strip surrounding quotes from the name value', () => {
+      const yaml = "name: 'quoted-app'\nversion: 2\n"
+      const result = extractYamlTitle(yaml, 'app.yaml')
+
+      expect(result.title).toBe('quoted-app')
+      expect(result.source).toBe('content')
+    })
+  })
+
+  // --------------------------------------------
+  // extractXpoTitle
+  // --------------------------------------------
+  describe('extractXpoTitle', () => {
+    it('should extract CLASS object name', () => {
+      const xpo =
+        'Exportfile for AOT version 1.0 or later\nFormatversion:1\n***Element: CLS\n\n  CLASS #SalesFormLetter\n  ENDCLASS\n'
+      const result = extractXpoTitle(xpo, 'SalesFormLetter.xpo')
+
+      expect(result.title).toBe('SalesFormLetter')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract TABLE object name', () => {
+      const xpo = 'Exportfile for AOT version 1.0 or later\n\n  TABLE #CustTable\n  ENDTABLE\n'
+      const result = extractXpoTitle(xpo, 'CustTable.xpo')
+
+      expect(result.title).toBe('CustTable')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract FORM object name', () => {
+      const xpo = '  FORM #SalesTable\n  ENDFORM\n'
+      const result = extractXpoTitle(xpo, 'SalesTable.xpo')
+
+      expect(result.title).toBe('SalesTable')
+      expect(result.source).toBe('content')
+    })
+
+    it('should extract ENUM object name', () => {
+      const xpo = '  ENUM #NoYesId\n  ENDENUM\n'
+      const result = extractXpoTitle(xpo, 'NoYesId.xpo')
+
+      expect(result.title).toBe('NoYesId')
+      expect(result.source).toBe('content')
+    })
+
+    it('should fall back to file name when no AOT object declaration is found', () => {
+      const xpo = 'Exportfile for AOT version 1.0 or later\nFormatversion:1\n'
+      const result = extractXpoTitle(xpo, 'my-export.xpo')
+
+      expect(result.title).toBe('my export')
+      expect(result.source).toBe('filename')
+    })
+
+    it('should be case-insensitive for object keywords', () => {
+      const xpo = '  class #MyClass\n'
+      const result = extractXpoTitle(xpo, 'my-class.xpo')
+
+      expect(result.title).toBe('MyClass')
       expect(result.source).toBe('content')
     })
   })

@@ -175,3 +175,106 @@ export function extractDocxTitle(htmlContent: string, fileName: string): TitleEx
   // Fall back to file name
   return { title: fileNameToTitle(fileName), source: 'filename' }
 }
+
+/**
+ * Extract title from source code files (.ts, .js, .cs)
+ *
+ * Priority:
+ *   1. First meaningful single-line comment at the top of the file
+ *      (lines starting with `//` or `#!` shebangs are skipped)
+ *   2. First class / interface / function / namespace / module / enum declaration
+ *   3. File name
+ *
+ * @param text - Source code content
+ * @param fileName - File name for fallback
+ * @returns Title extraction result
+ */
+export function extractCodeTitle(text: string, fileName: string): TitleExtractionResult {
+  // 1. Try first leading single-line comment (ignoring shebangs and blank lines)
+  const lines = text.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.length === 0 || trimmed.startsWith('#!')) continue // skip blanks & shebangs
+    const commentMatch = trimmed.match(/^\/\/\s*(.+)/)
+    if (commentMatch?.[1]) {
+      const candidate = commentMatch[1].trim()
+      // Accept reasonably short, non-noisy comments as a title
+      if (candidate.length > 0 && candidate.length <= 200 && !candidate.startsWith('=')) {
+        return { title: candidate, source: 'content' }
+      }
+    }
+    // Stop scanning once we reach a non-blank, non-comment line
+    break
+  }
+
+  // 2. Try class / interface / function / namespace / enum declaration
+  const declarationMatch = text.match(
+    /^[ \t]*(?:(?:public|private|internal|protected|static|abstract|sealed|partial|export|default)\s+)*(?:class|interface|function|enum|namespace|module)\s+([A-Za-z_$][A-Za-z0-9_.$<>, ]*)/m
+  )
+  if (declarationMatch?.[1]) {
+    // Take only the name portion before any generic type parameters.
+    // The capture group allows dots so C# dotted namespaces are preserved;
+    // generics are trimmed off at the first `<`.
+    const simpleName = declarationMatch[1].split('<')[0]?.trim()
+    if (simpleName && simpleName.length > 0) {
+      return { title: simpleName, source: 'content' }
+    }
+  }
+
+  // 3. Fall back to file name
+  return { title: fileNameToTitle(fileName), source: 'filename' }
+}
+
+/**
+ * Extract title from YAML files (.yaml, .yml)
+ *
+ * Priority:
+ *   1. Root-level `name:` or `title:` field (first occurrence)
+ *   2. File name
+ *
+ * @param text - YAML content
+ * @param fileName - File name for fallback
+ * @returns Title extraction result
+ */
+export function extractYamlTitle(text: string, fileName: string): TitleExtractionResult {
+  // Match root-level `name:` or `title:` (not indented, optional quotes)
+  const nameMatch = text.match(/^(?:name|title)\s*:\s*['"]?([^'"\n]+?)['"]?\s*$/m)
+  if (nameMatch?.[1]) {
+    const candidate = nameMatch[1].trim()
+    if (candidate.length > 0) {
+      return { title: candidate, source: 'content' }
+    }
+  }
+
+  // Fall back to file name
+  return { title: fileNameToTitle(fileName), source: 'filename' }
+}
+
+/**
+ * Extract title from Dynamics AX export files (.xpo)
+ *
+ * XPO files are structured text exports from the Dynamics AX AOT.
+ * Each file typically exports one or more named objects.
+ *
+ * Priority:
+ *   1. First AOT object name found after keywords like CLASS, TABLE, FORM,
+ *      REPORT, QUERY, JOB, ENUM, MENUITEM, INTERFACE, MAP, VIEW
+ *      (format: `CLASS #ObjectName`)
+ *   2. File name
+ *
+ * @param text - XPO file content
+ * @param fileName - File name for fallback
+ * @returns Title extraction result
+ */
+export function extractXpoTitle(text: string, fileName: string): TitleExtractionResult {
+  // Look for AX object declarations: e.g. "  CLASS #SalesFormLetter"
+  const objectMatch = text.match(
+    /^\s*(?:CLASS|TABLE|FORM|REPORT|QUERY|JOB|ENUM|MENUITEM|INTERFACE|MAP|VIEW|DATATABLE)\s+#(\S+)/im
+  )
+  if (objectMatch?.[1]) {
+    return { title: objectMatch[1].trim(), source: 'content' }
+  }
+
+  // Fall back to file name
+  return { title: fileNameToTitle(fileName), source: 'filename' }
+}
